@@ -29,6 +29,81 @@ def get_connection():
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
+
+# Initialize database tables
+def initialize_database():
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS Users (
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS Medications (
+            medication_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            medicine_name TEXT NOT NULL,
+            dosage TEXT NOT NULL,
+            frequency_per_day INTEGER NOT NULL,
+            start_date TEXT,
+            end_date TEXT,
+            FOREIGN KEY (user_id) REFERENCES Users(user_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS Medication_Schedule (
+            schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            medication_id INTEGER NOT NULL,
+            scheduled_time TEXT NOT NULL,
+            FOREIGN KEY (medication_id)
+            REFERENCES Medications(medication_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS Dose_Records (
+            dose_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            schedule_id INTEGER NOT NULL,
+            scheduled_datetime TEXT NOT NULL,
+            status TEXT DEFAULT 'Pending',
+            recorded_at TEXT,
+            FOREIGN KEY (schedule_id)
+            REFERENCES Medication_Schedule(schedule_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS Predictions (
+            prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            medication_id INTEGER NOT NULL,
+            scheduled_datetime TEXT,
+            missed_dose_probability REAL,
+            risk_level TEXT,
+            model_name TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES Users(user_id),
+            FOREIGN KEY (medication_id)
+            REFERENCES Medications(medication_id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# Create tables automatically
+initialize_database()
+
 # Password functions
 def hash_password(password):
     return bcrypt.hashpw(
