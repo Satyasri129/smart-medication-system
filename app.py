@@ -1,4 +1,4 @@
-import streamlit as st
+=import streamlit as st
 import sqlite3
 import bcrypt
 import pandas as pd
@@ -523,6 +523,7 @@ else:
             )
             
             
+   
     # --------------------------------
     # DOSE TRACKING
     # --------------------------------
@@ -535,60 +536,108 @@ else:
 
         conn = get_connection()
 
-        cursor = conn.cursor()
-
-        cursor.execute("""
+        scheduled_doses = conn.execute("""
             SELECT
-                dr.dose_id,
                 m.medicine_name,
                 m.dosage,
-                dr.scheduled_datetime,
-                dr.status
-            FROM Dose_Records dr
+                ms.schedule_id,
+                ms.scheduled_time
+            FROM Medications m
             JOIN Medication_Schedule ms
-            ON dr.schedule_id = ms.schedule_id
-            JOIN Medications m
-            ON ms.medication_id = m.medication_id
+            ON m.medication_id = ms.medication_id
             WHERE m.user_id = ?
-            AND DATE(dr.scheduled_datetime) = ?
-        """, (user_id, today))
-
-        records = cursor.fetchall()
+            AND m.start_date <= ?
+            AND m.end_date >= ?
+            ORDER BY ms.scheduled_time
+        """, (user_id, today, today)).fetchall()
 
         conn.close()
 
-        if records:
+        if scheduled_doses:
 
-            for record in records:
+            for medicine in scheduled_doses:
 
-                dose_id = record[0]
-                medicine_name = record[1]
-                dosage = record[2]
-                scheduled_time = record[3]
-                status = record[4]
+                medicine_name = medicine[0]
+                dosage = medicine[1]
+                schedule_id = medicine[2]
+                scheduled_time = medicine[3]
+
+                scheduled_datetime = (
+                    today + " " + scheduled_time
+                )
+
+                conn = get_connection()
+
+                record = conn.execute("""
+                    SELECT dose_id, status
+                    FROM Dose_Records
+                    WHERE schedule_id = ?
+                    AND scheduled_datetime = ?
+                """, (
+                    schedule_id,
+                    scheduled_datetime
+                )).fetchone()
+
+                conn.close()
+
+                st.divider()
 
                 st.subheader(medicine_name)
+
                 st.write("Dosage:", dosage)
                 st.write("Scheduled Time:", scheduled_time)
-                st.write("Current Status:", status)
+
+                if record:
+                    status = record[1]
+
+                    if status == "Taken":
+                        st.success("Dose Taken ✓")
+                    elif status == "Missed":
+                        st.error("Dose Missed")
+                    else:
+                        st.warning("Dose Pending")
+                else:
+                    status = "Pending"
+                    st.warning("Dose Pending")
 
                 col1, col2 = st.columns(2)
 
-                if status == "Pending":
+                with col1:
 
-                    if col1.button("Taken", key=f"taken_{dose_id}"):
+                    if st.button(
+                        "✅ Mark as Taken",
+                        key=f"taken_{schedule_id}"
+                    ):
 
                         conn = get_connection()
 
-                        conn.execute("""
-                            UPDATE Dose_Records
-                            SET status = ?, recorded_at = ?
-                            WHERE dose_id = ?
-                        """, (
-                            "Taken",
-                            datetime.now().isoformat(),
-                            dose_id
-                        ))
+                        if record:
+                            conn.execute("""
+                                UPDATE Dose_Records
+                                SET status = 'Taken',
+                                    recorded_at = ?
+                                WHERE dose_id = ?
+                            """, (
+                                datetime.now().isoformat(),
+                                record[0]
+                            ))
+
+                        else:
+                            conn.execute("""
+                                INSERT INTO Dose_Records
+                                (
+                                    schedule_id,
+                                    scheduled_datetime,
+                                    status,
+                                    recorded_at
+                                )
+                                VALUES (?, ?, ?, ?)
+                            """, (
+                                schedule_id,
+                                scheduled_datetime,
+                                "Taken",
+                                datetime.now().isoformat()
+                            ))
 
                         conn.commit()
                         conn.close()
@@ -596,19 +645,42 @@ else:
                         st.success("Dose marked as Taken!")
                         st.rerun()
 
-                    if col2.button("Missed", key=f"missed_{dose_id}"):
+                with col2:
+
+                    if st.button(
+                        "❌ Mark as Missed",
+                        key=f"missed_{schedule_id}"
+                    ):
 
                         conn = get_connection()
 
-                        conn.execute("""
-                            UPDATE Dose_Records
-                            SET status = ?, recorded_at = ?
-                            WHERE dose_id = ?
-                        """, (
-                            "Missed",
-                            datetime.now().isoformat(),
-                            dose_id
-                        ))
+                        if record:
+                            conn.execute("""
+                                UPDATE Dose_Records
+                                SET status = 'Missed',
+                                    recorded_at = ?
+                                WHERE dose_id = ?
+                            """, (
+                                datetime.now().isoformat(),
+                                record[0]
+                            ))
+
+                        else:
+                            conn.execute("""
+                                INSERT INTO Dose_Records
+                                (
+                                    schedule_id,
+                                    scheduled_datetime,
+                                    status,
+                                    recorded_at
+                                )
+                                VALUES (?, ?, ?, ?)
+                            """, (
+                                schedule_id,
+                                scheduled_datetime,
+                                "Missed",
+                                datetime.now().isoformat()
+                            ))
 
                         conn.commit()
                         conn.close()
@@ -616,14 +688,10 @@ else:
                         st.warning("Dose marked as Missed!")
                         st.rerun()
 
-                else:
-
-                    st.info(f"Dose already recorded as {status}")
-
         else:
 
-            st.info("No dose records available for today.")
-            
+            st.info("No medicines scheduled for today.")
+
     # --------------------------------
     # AI RISK PREDICTION
     # --------------------------------
